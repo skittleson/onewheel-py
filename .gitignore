@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+captures/*.log
+captures/*.btsnoop
+captures/*.pcap
+captures/*.zip
+*.csv
