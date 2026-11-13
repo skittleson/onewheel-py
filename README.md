@@ -7,6 +7,7 @@
 [![BLE](https://img.shields.io/badge/BLE-bleak-009688)](https://github.com/hbbluetoothequipment/bleak)
 [![ESP32](https://img.shields.io/badge/firmware-ESP32--S3-orange?logo=espressif)](firmware/ow-epaper/)
 [![Web app](https://img.shields.io/badge/web%20app-live-brightgreen?logo=githubpages)](https://skittleson.github.io/onewheel-py/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **Live web dashboard → [skittleson.github.io/onewheel-py](https://skittleson.github.io/onewheel-py/)**
 Watch your board in real time over Bluetooth from Chrome or Edge, install it as an app, and download your rides as CSV. No account, no server, data stays in your browser.
@@ -263,5 +264,4 @@ links: [docs/references.md](docs/references.md).
 
 ## License
 
-No license file yet. Personal project, source-available; open an issue if you
-want to use it somewhere that needs a license.
+MIT. Do what you want with it, attribution appreciated.

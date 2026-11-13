@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Onewheel BLE telemetry from Linux — unlock, live monitor, protocol docs"
 readme = "README.md"
 requires-python = ">=3.10"
+license = "MIT"
 dependencies = ["bleak>=0.21,<4"]
 
 [project.optional-dependencies]
