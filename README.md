@@ -21,8 +21,9 @@ was extracted from a Bluetooth HCI snoop log of the official app and turned
 out to be a **static signature for this board** — same bytes worked across
 multiple sessions and between two different BLE centrals (phone + Linux laptop).
 
-If you ever change boards, redo the snoop capture in `docs/references.md`
-and update `UNLOCK_MAGIC` in `src/unlock_pint.py`.
+If you ever change boards, redo the snoop capture in `docs/references.md`,
+extract the new token with `src/parse_snoop.py`, and update
+`OW_UNLOCK_MAGIC` in `.env`.
 
 ## Your board
 
@@ -61,7 +62,9 @@ e659f300-ea98-11e3-ac10-0800200c9a66
 ### Characteristics (the useful ones)
 
 All UUIDs share the same base; only the 4-digit prefix changes
-(`e659fXXX-ea98-11e3-ac10-0800200c9a66`).
+(`e659fXXX-ea98-11e3-ac10-0800200c9a66`). From `f310` onward the names follow
+[OWCE](https://github.com/OnewheelCommunityEdition/OWCE_App) (`OWBoard.cs`), checked
+against the official app's reads in `captures/snoop_decoded.txt`.
 
 | UUID prefix | Name              | Access     | Decode                        |
 |-------------|-------------------|------------|-------------------------------|
@@ -71,7 +74,7 @@ All UUIDs share the same base; only the 4-digit prefix changes
 | `f304`      | BatteryLow5       | read/notify| bool                          |
 | `f305`      | BatteryLow20      | read/notify| bool                          |
 | `f306`      | BatterySerial     | read       | uint16                        |
-| `f307`     ★| Pitch             | read/notify| int16, degrees = (v − 0x8000)/10 |
+| `f307`     ★| Pitch             | read/notify| uint16, degrees = (v − 1800)/10 (Pint S) |
 | `f308`     ★| Roll              | read/notify| int16, same scaling           |
 | `f309`     ★| Yaw               | read/notify| int16, same scaling           |
 | `f30a`      | TripOdometer      | read/notify| uint16 wheel rotations        |
@@ -80,19 +83,19 @@ All UUIDs share the same base; only the 4-digit prefix changes
 | `f30d`      | LightsFront       | read/write |                               |
 | `f30e`      | LightsBack        | read/write |                               |
 | `f30f`     ★| StatusError       | read/notify| bitfield — board state + faults |
-| `f310`     ★| Temperature       | read/notify| controller °C (low byte) / motor °C (high byte) |
-| `f311`      | BatteryTemp       | read       | °C                            |
-| `f312`     ★| BatteryVoltage    | read/notify| uint16 centivolts (÷10 = V)   |
-| `f313`      | SafetyHeadroom    | read/notify| % derate                      |
-| `f314`      | HardwareRevision  | read       | uint16 → maps to model/gen    |
-| `f315`      | FirmwareRevision  | read       | uint16                        |
-| `f316`      | LifetimeOdometer  | read       | uint16 (count of "trip rollovers") |
-| `f317`      | LifetimeAmpHours  | read       | uint16                        |
-| `f318`      | BatteryCells      | read       | 16 cell voltages, 2-bytes each (read in chunks) |
-| `f319`      | LastErrorCode     | read       | uint16 — last fault code      |
-| `f31a`      | (reserved)        |            |                               |
-| `f31b`      | StanceFootpads    | read/notify| 0=off, 1=front only, 2=both, 3=back |
-| `f320`     ★| CurrentAmps       | read/notify| int16 motor amps (signed, ÷1000?) |
+| `f310`     ★| Temperature       | read/notify| byte 0 = motor °C, byte 1 = controller °C |
+| `f311`      | FirmwareRevision  | read       | uint16 (this board: 5200)     |
+| `f312`     ★| CurrentAmps       | read/notify| int16 × 0.002 A (Pint, per OWCE); negative = regen |
+| `f313`      | TripAmpHours      | read/notify| uint16                        |
+| `f314`      | TripRegenAmpHours | read/notify| uint16                        |
+| `f315`     ★| BatteryTemp       | read/notify| byte 0 = °C                   |
+| `f316`      | BatteryVoltage    | read/notify| uint16 × 0.1 V — **reads 0 on this Pint S** (locked by firmware) |
+| `f317`      | SafetyHeadroom    | read/write | the unlock sequence writes `0x0001` here |
+| `f318`      | HardwareRevision  | read       | uint16 range → model (this board: 7323) |
+| `f319`      | LifetimeOdometer  | read       | uint16                        |
+| `f31a`      | LifetimeAmpHours  | read       | uint16                        |
+| `f31b`      | BatteryCells      | read/notify| cell id in top nibble, mV × 1.1 in low 12 bits |
+| `f31c`      | LastErrorCode     | read/notify| uint16                        |
 | `f3fe`     ★| UartSerialRead    | notify     | challenge from board (20B)    |
 | `f3ff`     ★| UartSerialWrite   | write      | challenge response (20B)      |
 
@@ -117,64 +120,75 @@ response = b"\x43\x52\x58" + md5(b"\x43\x52\x58" + challenge[3:]).digest()[:16] 
 where `challenge[0:3]` is the magic `b"\x43\x52\x58"` ("CRX") echo and
 `checksum` = XOR of the 19 prior bytes.
 
-**Pint / GT algorithm**: changed. The community has working implementations
-but Future Motion has tightened it. See the references at the bottom — the
-two reliable open-source landing spots right now are:
+**Pint / Pint S (this board)**: no per-session algorithm is needed. The
+app writes a **static 20-byte token** to `f3ff` that is unique per board and
+identical across sessions. Capture it once with an HCI snoop log (see below),
+put it in `.env` as `OW_UNLOCK_MAGIC`, and run `live_monitor.py --unlock pint`.
+The full sequence the app uses (and this project replays) is:
 
-- **`pOnewheel` (Android, Java)** — has a current Pint/GT unlock.
-- **`gemurf`** — Go, the canonical reference for the XR challenge.
-- **`owpy` / `onewheel-bleak`** — Python wrappers (XR-era).
+1. Read `f302` RidingMode, `f318` HardwareRevision, `f311` FirmwareRevision
+2. Write the token to `f3ff`
+3. Write `0x0001` to `f317` (SafetyHeadroom)
+4. Write `0x00` to `f30b` every ~200 ms as a keepalive
 
-If your board is a **GT**, plan on either:
-1. Sniffing the official app's `f3ff` write once via Android HCI snoop log,
-   then replaying the algorithm by transcribing the Java unlock code from
-   pOnewheel into Python; or
-2. Living with read-only access to the static characteristics (battery %,
-   firmware/hardware rev, last error, lifetime stats) — which is still
-   useful for a dashboard.
+**GT / Pint X**: untested here. Try the same snoop-and-replay approach first;
+if the token changes per session, see `pOnewheel` (Android, Java) in
+`docs/references.md`. `gemurf` (Go) is the canonical XR reference and
+`owpy` / `onewheel-bleak` are XR-era Python wrappers.
 
 The discovery + read scripts in this project work **without** unlock.
-The live-stream script will work fully on XR and earlier; on Pint/GT it
-will get partial data until you wire in the matching unlock.
 
 ## Project layout
 
 ```
 onewheel-py/
 ├── README.md                  ← you are here
-├── requirements.txt
+├── pyproject.toml             ← package metadata, ow-* console scripts, pytest config
+├── requirements.txt           ← exact tested versions
+├── .env.example               ← copy to .env: OW_ADDRESS, OW_UNLOCK_MAGIC
 ├── src/
 │   ├── ow_uuids.py            ← all GATT UUIDs + decoders
+│   ├── ow_env.py              ← OW_ADDRESS / OW_UNLOCK_MAGIC loading (env or .env)
 │   ├── discover.py            ← scan, find your board, dump GATT table
 │   ├── read_static.py         ← one-shot read of every readable char
-│   ├── live_monitor.py        ← subscribe to notifications, print rolling state
-│   └── unlock_xr.py           ← XR challenge solver (works on +/XR; reference for porting)
+│   ├── live_monitor.py        ← subscribe + rolling dashboard; --unlock none|xr|pint, --csv
+│   ├── unlock_pint.py         ← shortcut for `live_monitor.py --unlock pint`
+│   ├── unlock_xr.py           ← XR challenge solver (+/XR)
+│   ├── probe_challenge.py     ← experiment: try to provoke the f3fe challenge
+│   └── parse_snoop.py         ← btsnoop_hci.log → OW reads/writes/notifies (find the token)
+├── tests/                     ← pytest; fixtures/ holds raw bytes from a real Pint S ride
+├── firmware/ow-epaper/        ← standalone ESP32-S3 e-paper stats display (see its README)
 ├── docs/
 │   ├── protocol.md            ← deeper dive on byte formats + status bitfield
 │   └── references.md          ← links to all upstream reverse-engineering work
-└── captures/                  ← drop pcap/btsnoop logs here
+└── captures/                  ← drop pcap/btsnoop logs here (gitignored)
 ```
 
 ## Quick start
 
 ```bash
-cd ~/Projects/onewheel-py
 python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+pip install -e '.[dev]'          # or: pip install -r requirements.txt
+cp .env.example .env             # fill in OW_ADDRESS (+ OW_UNLOCK_MAGIC for Pint)
 
 # 1. Find your board and dump its GATT table
-python src/discover.py
+ow-discover                      # == python src/discover.py
 
 # 2. Once-off read of every static value (works on every gen, no unlock)
-python src/read_static.py --address XX:XX:XX:XX:FD:B0
+ow-read                          # == python src/read_static.py [--address ...]
 
 # 3. Live stream of pitch/RPM/battery/amps/temp
-python src/live_monitor.py --address XX:XX:XX:XX:FD:B0
+ow-monitor --unlock pint --csv ride.csv   # Pint / Pint S
+ow-monitor --unlock xr                    # Onewheel+ XR
+ow-monitor                                # V1 / +
+
+# Tests
+pytest
 ```
 
-If `live_monitor.py` shows updates for ~5 seconds and then goes quiet on a
-Pint/GT, that's the unlock kicking in — see `docs/references.md` to wire
-in the matching response.
+`--address` is optional everywhere; it falls back to `OW_ADDRESS`. On a
+Pint without `--unlock pint`, expect most live values to read `0` and
+notifications to stay quiet.
 
 ## Linux BLE prerequisites
 

@@ -12,8 +12,11 @@
    │
 [subscribe] ──► CCCD writes on every characteristic you want notifications for
    │
-[challenge]  board → app  on f3fe (20 bytes)        ◄── Pint+/XR/GT only
+[challenge]  board → app  on f3fe (20 bytes)        ◄── XR: answer with MD5 solver
 [response]   app → board on f3ff (20 bytes, write-with-response)
+             Pint S: no challenge to an un-bonded central — write the
+             static per-board token to f3ff, then 0x0001 → f317, then
+             0x00 → f30b every ~200 ms as keepalive
    │
 [stream] ──► notifications flow ~10–50 Hz on the live channels
 ```
@@ -27,13 +30,14 @@ data.
 
 ### `f307` Pitch / `f308` Roll / `f309` Yaw
 
-Two encodings have been observed across firmware:
+Big-endian uint16 with **1800** as zero: degrees = `(raw - 1800) / 10`.
+Verified on the Pint S (`0x0709` = 1801 → +0.1° at near-level engagement;
+`tests/fixtures/ride_10s_sample.csv` stays within ±20° for a short ride).
+That is what `ow_uuids.decode_pitch_roll_yaw()` implements.
 
-1. **Offset uint16**: raw value with `0x8000` as zero. Degrees = `(raw - 0x8000) / 10`.
-   Range ≈ ±90° pitch/roll, full 360° yaw.
-2. **Signed int16**: degrees = `int16(raw) / 10`.
-
-`ow_uuids.decode_pitch_roll_yaw()` heuristically handles both.
+Older community docs describe a `0x8000` offset or plain signed int16 on
+earlier generations. Neither is implemented here; if you add support for
+another board, make the decoder model-aware and add a capture fixture.
 
 ### `f30b` RPM
 
@@ -46,13 +50,16 @@ Big-endian uint16. Wheel rpm. Convert to mph with circumference:
 uint16 centivolts (volts × 10). XR pack rests around 580–630 (58–63 V).
 GT around 740–840 (74–84 V).
 
-### `f320` CurrentAmps
+### `f312` CurrentAmps
 
-int16, scaling depends on gen. Observed:
-- Positive = motor pulling current (acceleration / hill climb)
-- Negative = regen (braking / coasting downhill)
-- Divide by 1000 on XR, by 100 on some Pint firmware. Calibrate against the
-  app once if you need precision.
+int16, two's complement. OWCE scales by 0.002 A per count on Pint / Pint X / GT
+(0.0018 on Plus, 0.0009 on V1). Positive = motor pulling current, negative =
+regen. Reads 0 at rest.
+
+> Earlier versions of this project mislabelled `f310`–`f320` (for example
+> `f312` as BatteryVoltage, which is why the e-paper's VOLTS read 0). The
+> README table now follows OWCE; `f316` is the real BatteryVoltage and reads
+> 0 on this board's firmware, even for the official app.
 
 ### `f30f` StatusError
 
@@ -63,23 +70,14 @@ uint16, two sub-fields:
 - high byte = fault flags (bitmask) — most-significant bits set on
   pushback / overcurrent / cell imbalance / etc. The exact bit map varies by
   gen and isn't fully published; treat anything non-zero as "something to
-  log + look up against `LastErrorCode` (`f319`)".
+  log + look up against `LastErrorCode` (`f31c`)".
 
-### `f318` BatteryCells
+### `f31b` BatteryCells
 
-Read in chunks (longer than MTU on older firmware). 16 cells × 2 bytes each
-= 32-byte payload. Each cell is uint16 millivolts; healthy is 3500–4200 mV.
-
-### `f31b` StanceFootpads
-
-uint8, encodes which footpad sensors are active:
-- 0 = neither (board off / dismounted)
-- 1 = front pad only
-- 2 = both engaged (riding)
-- 3 = back pad only
-
-Going from 0 → 1 → 2 is the "engagement" sequence the board uses to decide
-whether to spin up the motor.
+Per OWCE, on firmware ≥ 4141 each value carries a cell id in the top 4 bits
+and the cell voltage in the low 12 bits (× 0.0011 V). It read 0 on this
+board. There is no known footpad characteristic on the Pint S; footpad state
+is probably encoded in `f30f` StatusError bits.
 
 ## Notification cadence
 
@@ -89,8 +87,15 @@ When fully unlocked and riding, expect roughly:
 - Temperatures — 1 Hz
 - StatusError / Footpads — on-change only
 
-Without unlock on Pint/GT you typically still get StatusError + Battery%
-notifications but Pitch/RPM/Amps stop after a few seconds.
+Observed on the Pint S after unlock: `f3fe` (UART) dominates at ~200 Hz;
+Pitch / Roll / RPM arrive at ~5 Hz each. Without unlock, live reads return
+`0x0000` and notifications do not fire. `live_monitor.py` redraws its
+dashboard at most ~20 Hz regardless of notification rate.
+
+Unmapped characteristics `f31c` and `f31e` also notify on the Pint S; they
+are logged as raw hex. `f304` (BatteryLow5) and `f313` (SafetyHeadroom)
+carry values that change constantly on the Pint S, so their documented
+meanings (bool / % derate) likely do not apply to this board.
 
 ## Writing values
 

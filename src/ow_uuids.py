@@ -20,6 +20,9 @@ def c(prefix: str) -> str:
 SERVICE_UUID = c("300")  # primary OW service
 
 # --- Characteristic UUIDs ---------------------------------------------------
+# f301–f30f are long-standing community names. f310 onward follow OWCE
+# (github.com/OnewheelCommunityEdition/OWCE_App, OWBoard.cs), confirmed against
+# the official app's reads in captures/snoop_decoded.txt.
 SERIAL_NUMBER       = c("301")
 RIDING_MODE         = c("302")
 BATTERY_REMAINING   = c("303")
@@ -35,36 +38,32 @@ LIGHTING_MODE       = c("30c")
 LIGHTS_FRONT        = c("30d")
 LIGHTS_BACK         = c("30e")
 STATUS_ERROR        = c("30f")
-TEMPERATURE         = c("310")
-BATTERY_TEMP        = c("311")
-BATTERY_VOLTAGE     = c("312")
-SAFETY_HEADROOM     = c("313")
-HARDWARE_REVISION   = c("314")
-FIRMWARE_REVISION   = c("315")
-LIFETIME_ODOMETER   = c("316")
-LIFETIME_AMP_HOURS  = c("317")
-BATTERY_CELLS       = c("318")
-LAST_ERROR_CODE     = c("319")
-STANCE_FOOTPADS     = c("31b")
-CURRENT_AMPS        = c("320")
+TEMPERATURE         = c("310")  # [0] motor °C, [1] controller °C
+FIRMWARE_REVISION   = c("311")
+CURRENT_AMPS        = c("312")
+TRIP_AMP_HOURS      = c("313")
+TRIP_REGEN_AMP_HOURS = c("314")
+BATTERY_TEMP        = c("315")  # [0] °C on Pint / XR / GT
+BATTERY_VOLTAGE     = c("316")  # reads 0 on Pint S firmware (locked)
+SAFETY_HEADROOM     = c("317")  # the unlock sequence writes 0x0001 here
+HARDWARE_REVISION   = c("318")
+LIFETIME_ODOMETER   = c("319")
+LIFETIME_AMP_HOURS  = c("31a")
+BATTERY_CELLS       = c("31b")
+LAST_ERROR_CODE     = c("31c")
 UART_SERIAL_READ    = c("3fe")  # board → app challenge (notify)
 UART_SERIAL_WRITE   = c("3ff")  # app → board response  (write)
 
 
-# --- Hardware-revision → model lookup --------------------------------------
-# From community reverse-engineering. Not exhaustive; unknown values fall
-# through as "Unknown".
-HW_MODELS = {
-    0x0001: "V1 (original)",
-    0x0002: "V1 (original)",
-    0x0003: "Onewheel+",
-    0x0004: "Onewheel+",
-    0x0005: "Onewheel+ XR",
-    0x0006: "Onewheel Pint",
-    0x0007: "Onewheel Pint X",
-    0x0008: "Onewheel GT",
-    0x0009: "Onewheel GT S",
-}
+# --- Hardware-revision ranges → model (OWCE) --------------------------------
+HW_MODEL_RANGES = [
+    (1, 2999, "V1"),
+    (3000, 3999, "Plus"),
+    (4000, 4999, "XR"),
+    (5000, 5999, "Pint"),
+    (6000, 6999, "GT"),
+    (7000, 7999, "Pint X / Pint S"),
+]
 
 
 # --- Decoders ---------------------------------------------------------------
@@ -80,7 +79,8 @@ def decode_pitch_roll_yaw(b: bytes) -> float:
     """Pint/Pint X/GT firmware uses 1800 as the zero offset.
     raw = degrees * 10 + 1800, so degrees = (raw - 1800) / 10.
     Empirically verified on a Pint S: pitch raw 0x0709 (=1801) during
-    a near-level engagement decodes to +0.1°.
+    a near-level engagement decodes to +0.1°. (OWCE uses the opposite
+    sign, (1800 - raw) / 10.)
     """
     raw = _u16(b)
     return (raw - 1800) / 10.0
@@ -99,20 +99,25 @@ def rpm_to_mph(rpm: int) -> float:
     return rpm * 0.0124
 
 
-def decode_voltage(b: bytes) -> float:
-    """Centivolts → volts."""
-    return _u16(b) / 10.0
+def decode_voltage(b: bytes) -> Optional[float]:
+    """Tenths of a volt. 0 means the firmware has locked this value → None."""
+    raw = _u16(b)
+    return raw / 10.0 if raw else None
 
 
 def decode_amps(b: bytes) -> float:
-    """Signed motor amps. Scaling varies by gen; raw / 1000 lines up on XR/Pint
-    in observed traces."""
-    return _i16(b) / 1000.0
+    """Signed motor current, 0.002 A per count on Pint / Pint X / GT (OWCE).
+    Negative = regen."""
+    return _i16(b) * 0.002
 
 
-def decode_temperature(b: bytes) -> tuple[int, int]:
-    """Returns (controller_C, motor_C). Two uint8s packed in one uint16."""
-    return b[0], b[1] if len(b) > 1 else 0
+def decode_temperature(b: bytes) -> tuple[Optional[int], int]:
+    """Returns (controller_C, motor_C). Wire order is [motor, controller]."""
+    return (b[1] if len(b) > 1 else None), b[0]
+
+
+def decode_battery_temp(b: bytes) -> int:
+    return b[0]
 
 
 def decode_status_error(b: bytes) -> dict:
@@ -136,20 +141,14 @@ def decode_status_error(b: bytes) -> dict:
     }
 
 
-def decode_footpads(b: bytes) -> str:
-    return {0: "off", 1: "front-only", 2: "both", 3: "back-only"}.get(
-        b[0] if b else -1, "unknown"
-    )
-
-
 def decode_hw_rev(b: bytes) -> str:
     rev = _u16(b)
-    return f"{rev:#06x} ({HW_MODELS.get(rev, 'Unknown')})"
+    model = next((m for lo, hi, m in HW_MODEL_RANGES if lo <= rev <= hi), "Unknown")
+    return f"{rev} ({model})"
 
 
-def decode_fw_rev(b: bytes) -> str:
-    rev = _u16(b)
-    return f"{rev} ({rev >> 8}.{rev & 0xFF})"
+def decode_fw_rev(b: bytes) -> int:
+    return _u16(b)
 
 
 @dataclass
@@ -168,7 +167,7 @@ FIELDS: list[Field] = [
     Field(FIRMWARE_REVISION, "FirmwareRevision", decode_fw_rev, "", False),
     Field(BATTERY_REMAINING, "BatteryRemaining", decode_battery_pct, "%", True),
     Field(BATTERY_VOLTAGE,   "BatteryVoltage",   decode_voltage, "V", True),
-    Field(BATTERY_TEMP,      "BatteryTemp",      lambda b: b[0], "°C", False),
+    Field(BATTERY_TEMP,      "BatteryTemp",      decode_battery_temp, "°C", True),
     Field(BATTERY_LOW_5,     "BatteryLow5",      lambda b: bool(b[0]), "", True),
     Field(BATTERY_LOW_20,    "BatteryLow20",     lambda b: bool(b[0]), "", True),
     Field(TEMPERATURE,       "Temperature",      decode_temperature, "°C", True),
@@ -179,11 +178,10 @@ FIELDS: list[Field] = [
     Field(CURRENT_AMPS,      "CurrentAmps",      decode_amps, "A", True),
     Field(TRIP_ODOMETER,     "TripOdometer",     _u16, "rev", True),
     Field(LIFETIME_ODOMETER, "LifetimeOdometer", _u16, "", False),
-    Field(LIFETIME_AMP_HOURS,"LifetimeAmpHours", _u16, "Ah", False),
-    Field(LAST_ERROR_CODE,   "LastErrorCode",    _u16, "", False),
+    Field(LIFETIME_AMP_HOURS,"LifetimeAmpHours", _u16, "", False),
+    Field(LAST_ERROR_CODE,   "LastErrorCode",    _u16, "", True),
     Field(STATUS_ERROR,      "StatusError",      decode_status_error, "", True),
-    Field(STANCE_FOOTPADS,   "StanceFootpads",   decode_footpads, "", True),
-    Field(SAFETY_HEADROOM,   "SafetyHeadroom",   lambda b: b[0], "%", True),
+    Field(SAFETY_HEADROOM,   "SafetyHeadroom",   _u16, "", True),
     Field(RIDING_MODE,       "RidingMode",       lambda b: b[0], "", False),
 ]
 

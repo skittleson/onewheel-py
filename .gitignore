@@ -7,3 +7,6 @@ captures/*.btsnoop
 captures/*.pcap
 captures/*.zip
 *.csv
+!tests/fixtures/*.csv
+*.egg-info/
+firmware/ow-epaper/secrets.h

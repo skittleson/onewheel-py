@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "onewheel-py"
+version = "0.1.0"
+description = "Onewheel BLE telemetry from Linux — unlock, live monitor, protocol docs"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["bleak>=0.21,<4"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+ow-discover = "discover:main"
+ow-read = "read_static:main"
+ow-monitor = "live_monitor:main"
+ow-unlock-pint = "unlock_pint:main"
+ow-probe = "probe_challenge:main"
+ow-epaper-monitor = "epaper_monitor:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+py-modules = [
+    "discover", "epaper_monitor", "live_monitor", "ow_env", "ow_uuids", "parse_snoop",
+    "probe_challenge", "read_static", "unlock_pint", "unlock_xr",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

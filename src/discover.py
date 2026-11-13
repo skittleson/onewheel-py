@@ -47,7 +47,7 @@ async def enumerate_gatt(address: str) -> None:
         ow_svc = svcs.get_service(SERVICE_UUID)
         if ow_svc is None:
             print(f"  WARNING: Onewheel service {SERVICE_UUID} not found.")
-            print(f"  Services advertised:")
+            print("  Services advertised:")
             for s in svcs:
                 print(f"    {s.uuid}")
             return

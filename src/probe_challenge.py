@@ -1,47 +1,38 @@
 """Minimal probe: subscribe ONLY to the UART challenge characteristic and wait.
 Some firmware revs only emit the challenge once a CCCD-enable lands on f3fe;
 others want a read on a protected characteristic to provoke it. We try both.
+
+Usage:
+    python src/probe_challenge.py [ADDRESS]   # default: OW_ADDRESS from env/.env
 """
 
+from __future__ import annotations
+
 import asyncio
-import os
 import sys
-from pathlib import Path
+
 from bleak import BleakClient
+
+from ow_env import resolve_address
 from ow_uuids import (
-    UART_SERIAL_READ, HARDWARE_REVISION, FIRMWARE_REVISION,
-    BATTERY_REMAINING, BATTERY_VOLTAGE,
+    BATTERY_REMAINING,
+    BATTERY_VOLTAGE,
+    FIRMWARE_REVISION,
+    HARDWARE_REVISION,
+    UART_SERIAL_READ,
 )
 
-import os
 
-def _addr():
-    if len(sys.argv) > 1:
-        return sys.argv[1]
-    val = os.environ.get("OW_ADDRESS", "").strip()
-    if not val:
-        for p in (Path.cwd() / ".env", Path(__file__).resolve().parent.parent / ".env"):
-            if p.is_file():
-                for line in p.read_text().splitlines():
-                    line = line.strip()
-                    if line.startswith("OW_ADDRESS="):
-                        val = line.split("=", 1)[1].strip().strip("'\"")
-                        break
-                break
-    if not val:
-        sys.exit("error: OW_ADDRESS not set (env var or .env file)")
-    return val
-
-ADDR = _addr()
-
-async def main():
+async def probe(address: str) -> None:
+    loop = asyncio.get_running_loop()
     seen = []
+
     def on_data(_s, data):
-        ts = asyncio.get_event_loop().time()
+        ts = loop.time()
         seen.append((ts, bytes(data)))
         print(f"  [{ts:.3f}] f3fe ← {bytes(data).hex()}  ({len(data)} bytes)", flush=True)
 
-    async with BleakClient(ADDR) as c:
+    async with BleakClient(address) as c:
         print(f"connected, mtu={c.mtu_size}")
         print("subscribing to f3fe (UART challenge)…")
         await c.start_notify(UART_SERIAL_READ, on_data)
@@ -67,4 +58,10 @@ async def main():
 
         print(f"\ntotal challenges received: {len(seen)}")
 
-asyncio.run(main())
+
+def main() -> None:
+    asyncio.run(probe(resolve_address(sys.argv[1] if len(sys.argv) > 1 else None)))
+
+
+if __name__ == "__main__":
+    main()

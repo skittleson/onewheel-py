@@ -2,7 +2,7 @@
 no unlock required — works on every gen for the static fields.
 
 Usage:
-    python src/read_static.py --address XX:XX:XX:XX:FD:B0
+    python src/read_static.py [--address XX:XX:XX:XX:FD:B0]   # default: OW_ADDRESS
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ import asyncio
 
 from bleak import BleakClient
 
+from ow_env import resolve_address
 from ow_uuids import FIELDS, SERVICE_UUID
 
 
@@ -37,9 +38,9 @@ async def run(address: str) -> None:
 
 def main() -> None:
     p = argparse.ArgumentParser()
-    p.add_argument("--address", required=True)
+    p.add_argument("--address", help="board MAC (default: OW_ADDRESS from env/.env)")
     args = p.parse_args()
-    asyncio.run(run(args.address))
+    asyncio.run(run(resolve_address(args.address)))
 
 
 if __name__ == "__main__":
