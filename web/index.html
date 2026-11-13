@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ow-epaper live</title>
+<meta name="description" content="Watch your Onewheel ESP32 stats display over Bluetooth. No account, no server.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>ow-epaper <span class="sub">live</span></h1>
+  <div class="actions">
+    <button id="connect">Connect</button>
+    <button id="record" disabled>Record</button>
+  </div>
+</header>
+
+<main>
+  <p id="status" class="hint">Requires Chrome or Edge (Web Bluetooth). On a phone, use Chrome for Android.</p>
+
+  <section id="tiles" hidden>
+    <div class="tile big"><span id="mph">--</span><label>MPH</label></div>
+    <div class="tile"><span id="batt_pct">--</span><label>battery %</label></div>
+    <div class="tile"><span id="pitch_deg">--</span><label>pitch &deg;</label></div>
+    <div class="tile"><span id="ctrl_c">--</span><label>ctrl &deg;C</label></div>
+    <div class="tile"><span id="motor_c">--</span><label>motor &deg;C</label></div>
+    <div class="tile"><span id="batt_c">--</span><label>batt &deg;C</label></div>
+    <div class="tile"><span id="amps">--</span><label>amps</label></div>
+  </section>
+
+  <section id="meta" hidden>
+    <div><label>link</label><span id="link">-</span></div>
+    <div><label>data age</label><span id="data_age_ms">-</span></div>
+    <div><label>notify rate</label><span id="notify_per_s">-</span></div>
+    <div><label>recording</label><span id="recording">-</span></div>
+    <div><label>esp battery</label><span id="esp_mv">-</span></div>
+    <div><label>rows captured</label><span id="rows">0</span></div>
+  </section>
+</main>
+
+<footer>
+  <p>Data stays in your browser. <a href="https://github.com/skittleson/onewheel-py">repo</a></p>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
