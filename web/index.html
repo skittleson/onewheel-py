@@ -14,6 +14,7 @@
 <header>
   <h1>ow-epaper <span class="sub">live</span></h1>
   <div class="actions">
+    <button id="install" hidden>Install</button>
     <button id="connect">Connect</button>
     <button id="record" disabled>Record</button>
   </div>
@@ -39,6 +40,15 @@
     <div><label>recording</label><span id="recording">-</span></div>
     <div><label>esp battery</label><span id="esp_mv">-</span></div>
     <div><label>rows captured</label><span id="rows">0</span></div>
+  </section>
+
+  <section id="rides" hidden>
+    <div class="rides-head">
+      <h2>Rides on SD</h2>
+      <button id="refresh-rides" class="small">Refresh</button>
+      <button id="download-all" class="small" disabled>Download all</button>
+    </div>
+    <ul id="ride-list"></ul>
   </section>
 </main>
 

@@ -9,7 +9,12 @@
 [![Web app](https://img.shields.io/badge/web%20app-live-brightgreen?logo=githubpages)](https://skittleson.github.io/onewheel-py/)
 
 **Live web dashboard → [skittleson.github.io/onewheel-py](https://skittleson.github.io/onewheel-py/)**
-Watch your board in real time over Bluetooth from Chrome or Edge. No install, no account, data stays in your browser.
+Watch your board in real time over Bluetooth from Chrome or Edge, install it as an app, and download your rides as CSV. No account, no server, data stays in your browser.
+
+<p align="center">
+  <img src="docs/img/web-app-mobile.png" alt="Live tiles and SD ride list (mobile)" width="340">
+  <img src="docs/img/web-app-desktop.png" alt="Desktop dashboard" width="600">
+</p>
 
 The Onewheel's Bluetooth protocol was reverse-engineered years ago and is
 stable across generations. This repo puts that knowledge to work in three
@@ -186,7 +191,14 @@ Build details: [firmware/ow-epaper/README.md](firmware/ow-epaper/README.md).
 
 Open **[skittleson.github.io/onewheel-py](https://skittleson.github.io/onewheel-py/)**
 in Chrome or Edge (Web Bluetooth; on Android, Chrome). Press **Connect**,
-pick **ow-epaper**, and watch live tiles. **Record** saves the feed to CSV.
+pick **ow-epaper**, and watch live tiles.
+
+- **Install as an app**: press **Install** (or the browser's install icon). It
+  runs standalone, and the shell works offline.
+- **Record**: save the live feed to CSV on your device while you ride.
+- **Rides on SD**: the app lists the ride files on the device's card and
+  downloads any of them as CSV over Bluetooth, one by one or all at once.
+  No card reader needed.
 
 The app reads only the ESP32's own broadcast service, never the Onewheel, so
 it cannot interfere with the display's connection. There is no server: it is

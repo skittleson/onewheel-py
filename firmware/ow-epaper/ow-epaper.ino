@@ -192,7 +192,72 @@ static void runSession(NimBLEClient* client) {
 
 // --- Live feed: ESP32 as a BLE peripheral so a laptop can watch it ------------
 static NimBLECharacteristic* liveRowChar = nullptr;
+static NimBLECharacteristic* fileChar = nullptr;
 static SemaphoreHandle_t liveFeedLock = nullptr;
+
+// Ride-file export over BLE (for the web app / epaper_monitor):
+//   write "LIST"   to f…0004 → fileChar notifies "ride_NNNN.csv:<bytes>" lines + "END"
+//   write "GET <n>"          → fileChar notifies raw CSV bytes, then a single 0x00
+// Reads hold sdlog::fsMutex, so they wait for the 5 Hz logger between rows.
+static volatile bool listRequested = false;
+static volatile int getRequest = -1;
+
+class FileCmdCallbacks : public NimBLECharacteristicCallbacks {
+  void onWrite(NimBLECharacteristic* ch, NimBLEConnInfo&) override {
+    std::string v = ch->getValue();
+    if (v == "LIST") listRequested = true;
+    else if (v.rfind("GET ", 0) == 0) getRequest = atoi(v.c_str() + 4);
+  }
+};
+static FileCmdCallbacks fileCmdCallbacks;
+
+static void notifyFileChunk(const char* data, size_t len) {
+  fileChar->setValue(reinterpret_cast<const uint8_t*>(data), len);
+  fileChar->notify();
+  vTaskDelay(pdMS_TO_TICKS(4));  // let the stack drain between chunks
+}
+
+static void streamRide(int index) {
+  char name[32];
+  ridelog::fileName(name, sizeof name, index);
+  xSemaphoreTake(sdlog::fsMutex, portMAX_DELAY);
+  File f = SD_MMC.open(name, FILE_READ);
+  if (!f) {
+    xSemaphoreGive(sdlog::fsMutex);
+    notifyFileChunk("\x01", 1);  // missing
+    return;
+  }
+  uint8_t buf[228];
+  for (int n = f.read(buf, sizeof buf); n > 0; n = f.read(buf, sizeof buf))
+    notifyFileChunk(reinterpret_cast<char*>(buf), n);
+  f.close();
+  xSemaphoreGive(sdlog::fsMutex);
+  notifyFileChunk("\x00", 1);  // done
+}
+
+static void streamListing() {
+  xSemaphoreTake(sdlog::fsMutex, portMAX_DELAY);
+  File dir = SD_MMC.open(ridelog::DIR);
+  for (File f = dir ? dir.openNextFile() : File(); f; f = dir.openNextFile()) {
+    int idx = ridelog::parseIndex(f.name());
+    if (idx < 0) continue;
+    char line[48];
+    int n = snprintf(line, sizeof line, "ride_%04d.csv:%u\n", idx, unsigned(f.size()));
+    notifyFileChunk(line, n);
+  }
+  if (dir) dir.close();
+  xSemaphoreGive(sdlog::fsMutex);
+  notifyFileChunk("END\n", 4);
+}
+
+static void fileTask(void*) {
+  for (;;) {
+    if (listRequested) { listRequested = false; streamListing(); }
+    int idx = getRequest;
+    if (idx >= 0) { getRequest = -1; streamRide(idx); }
+    vTaskDelay(pdMS_TO_TICKS(50));
+  }
+}
 
 static void startLiveFeed() {
   liveFeedLock = xSemaphoreCreateMutex();
@@ -204,7 +269,12 @@ static void startLiveFeed() {
   header->setValue(ridelog::LIVE_HEADER);
   liveRowChar = svc->createCharacteristic(ridelog::LIVE_ROW_UUID,
                                           NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+  NimBLECharacteristic* cmd =
+      svc->createCharacteristic(ridelog::LIVE_CMD_UUID, NIMBLE_PROPERTY::WRITE);
+  cmd->setCallbacks(&fileCmdCallbacks);
+  fileChar = svc->createCharacteristic(ridelog::LIVE_FILE_UUID, NIMBLE_PROPERTY::NOTIFY);
   svc->start();
+  xTaskCreatePinnedToCore(fileTask, "filex", 4096, nullptr, 1, nullptr, 1);
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
   adv->setName("ow-epaper");
   adv->addServiceUUID(ridelog::LIVE_SERVICE_UUID);

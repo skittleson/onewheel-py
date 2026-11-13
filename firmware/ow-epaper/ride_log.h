@@ -67,6 +67,8 @@ inline void formatRow(char* out, size_t size, unsigned long elapsedMs, const ow:
 constexpr const char* LIVE_SERVICE_UUID = "6f77e000-5a1e-4c0e-9b6e-0b3e7a1d0001";
 constexpr const char* LIVE_ROW_UUID     = "6f77e000-5a1e-4c0e-9b6e-0b3e7a1d0002";  // notify/read
 constexpr const char* LIVE_HEADER_UUID  = "6f77e000-5a1e-4c0e-9b6e-0b3e7a1d0003";  // read
+constexpr const char* LIVE_CMD_UUID     = "6f77e000-5a1e-4c0e-9b6e-0b3e7a1d0004";  // write: "LIST" | "GET <n>"
+constexpr const char* LIVE_FILE_UUID    = "6f77e000-5a1e-4c0e-9b6e-0b3e7a1d0005";  // notify: file transfer
 constexpr const char* LIVE_HEADER =
     "link,data_age_ms,notify_per_s,recording,t_s,rpm,mph,pitch_deg,roll_deg,batt_pct,batt_c,"
     "amps,volts,ctrl_c,motor_c,state,error_flags,esp_mv\n";

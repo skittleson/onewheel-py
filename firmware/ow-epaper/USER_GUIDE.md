@@ -116,7 +116,13 @@ Onewheel, so it does not interfere with the device.
 
 ## Extracting your ride data
 
-Option A, SD card (most data):
+Option A, web app (no card reader, no cable):
+
+1. Open the web app (link above) and Connect.
+2. Under **Rides on SD**, press **CSV** on a ride, or **Download all**.
+3. Files transfer over Bluetooth and save as `ride_NNNN.csv`.
+
+Option B, SD card (most data):
 
 1. Power off the device and eject the microSD card.
 2. Read the card on a computer. Files are `/rides/ride_NNNN.csv`.
@@ -128,13 +134,13 @@ Option A, SD card (most data):
    print(df[["t_s", "mph", "batt_pct", "ctrl_c"]].describe())
    ```
 
-Option B, serial cable (no card needed):
+Option C, serial cable (no card needed):
 
 1. Connect USB and run `make -C firmware/ow-epaper monitor`.
 2. Press `l` to list rides, then `g1` and Enter to print a ride.
 3. Copy the lines between the BEGIN/END markers into a `.csv` file.
 
-Option C, live feed from a laptop:
+Option D, live feed from a laptop:
 
 ```bash
 ow-epaper-monitor --csv feed.csv     # or: python src/epaper_monitor.py --csv feed.csv
